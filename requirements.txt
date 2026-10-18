@@ -1,0 +1,4 @@
+networkx>=3.0
+matplotlib>=3.7
+pytest>=7.0
+# Testbed only (system packages): mininet, openvswitch-switch, iperf3
