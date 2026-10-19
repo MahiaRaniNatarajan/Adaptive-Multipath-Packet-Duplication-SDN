@@ -63,16 +63,17 @@ def run(net, pcap_dir: str) -> List[Tuple[str, str, str]]:
     check("pingAll (h1<->h2) 0% loss", lambda: ((lambda l: (l == 0, f"{l:.0f}% dropped"))(net.pingAll(timeout=2))))
 
     def pinning():
-        bad = []
-        for pid, nodes in topo.PATHS.items():
-            mid = nodes[2]
-            before = {m: _tx(net, topo.PATHS[q][2], "s5") for q, m in ((q, topo.PATHS[q][2]) for q in topo.PATHS)}
-            net.get("h1").cmd(f"ping -n -c 5 -i 0.1 -W 1 -Q {topo.PROBE_TOS[pid]} {net.get('h2').IP()}")
-            after = {m: _tx(net, m, "s5") for m in before}
-            moved = {m for m in before if after[m] - before[m] >= 5}
-            if moved != {mid}:
-                bad.append(f"{pid}: counters moved on {sorted(moved)}")
-        return (not bad, "; ".join(bad) or "each probe crossed only its own middle switch")
+        # Fast burst of N probes per path. The pinned path's middle switch must forward all N towards s5;
+        # every other middle switch at most N/2, so a few stray non-probe packets cannot fake a result.
+        n, bad = 20, []
+        mids = {pid: nodes[2] for pid, nodes in topo.PATHS.items()}
+        for pid, mid in mids.items():
+            before = {m: _tx(net, m, "s5") for m in mids.values()}
+            net.get("h1").cmd(f"ping -n -q -c {n} -i 0.01 -W 1 -Q {topo.PROBE_TOS[pid]} {net.get('h2').IP()}")
+            d = {m: _tx(net, m, "s5") - before[m] for m in mids.values()}
+            if d[mid] < n or any(v > n // 2 for m, v in d.items() if m != mid):
+                bad.append(f"{pid}: forwarded per middle switch {d} (expected {n} on {mid} only)")
+        return (not bad, "; ".join(bad) or f"{n} probes per path all crossed only their own middle switch")
     check("path pinning: ToS probe uses exactly its own path", pinning)
 
     # ---- Task 1: monitoring

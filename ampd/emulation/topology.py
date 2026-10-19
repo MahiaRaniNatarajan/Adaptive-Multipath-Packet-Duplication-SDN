@@ -94,12 +94,27 @@ def path_link(path_id: str):
     return nodes[1], nodes[2]
 
 
+def _quiet_ipv6(net) -> None:
+    """Disable IPv6 on every Mininet interface.
+
+    With the OVS *userspace* datapath the host kernel still owns the switch-side veth ends and sends
+    IPv6 neighbour-discovery / multicast chatter out of them. That junk is forwarded by our flows and
+    pollutes per-path packet/utilization counters. (With the kernel datapath OVS captures the
+    interfaces, so this does not happen.) Silently a no-op on kernels without IPv6.
+    """
+    for node in list(net.hosts) + list(net.switches):
+        for intf in node.intfList():
+            if intf.name != "lo":
+                node.cmd(f"sysctl -qw net.ipv6.conf.{intf.name}.disable_ipv6=1 2>/dev/null")
+
+
 def start_network(net) -> None:
     """Start Mininet, then make it usable: static ARP + baseline forwarding flows (primary path)."""
     from ampd.emulation import flows  # local import: flows imports this module's constants
 
     net.start()
     net.staticArp()
+    _quiet_ipv6(net)
     flows.install_baseline(net)
 
 
